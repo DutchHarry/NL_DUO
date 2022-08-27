@@ -1,0 +1,54 @@
+# 20220827 get and download duo opendata file links.ps1.txt
+<#
+download alle data en toelichting bestanden van:
+https://duo.nl/open_onderwijsdata/
+#>
+
+$outputdir = "s:\_ue\duo\"   # <-- CREATE !!!!! ande here with \ at end!
+
+# function to convert text to html-document for easy parsing
+# source: https://stackoverflow.com/questions/71854268/regex-non-capturing-group/71855426#71855426
+function ParseHtml($String) {
+    $Unicode = [System.Text.Encoding]::Unicode.GetBytes($String)
+    $Html = New-Object -Com 'HTMLFile'
+    if ($Html.PSObject.Methods.Name -Contains 'IHTMLDocument2_Write') {
+        $Html.IHTMLDocument2_Write($Unicode)
+    } 
+    else {
+        $Html.write($Unicode)
+    }
+    $Html.Close()
+    $Html
+}
+
+$ProgressPreference = 'SilentlyContinue'  
+$duourl = "https://duo.nl"
+$url1 = -join ($duourl,"/open_onderwijsdata/")
+$w1 = Invoke-Webrequest -uri $url1
+$p1 = $w1.links.href |?{($_ -like "*open_onderwijsdata*") -and ($_ -like "*index.jsp*") -and ($_ -notlike "*/footer/*") -and ($_ -notlike "*/nieuws/*")  }
+
+$p1 | %{
+	$url2 = -join ($duourl,$_) 
+	$w2 = Invoke-Webrequest -uri $url2
+	$p2 = $w2.links.href| ?{($_ -like "*open_onderwijsdata*") -and ($_ -like "*index.jsp*") -and ($_ -notlike "*/footer/*") -and ($_ -notlike "*/nieuws/*")  }
+	$p2 | %{
+		$url3 = -join ($duourl,$_) 
+		$w3 = Invoke-Webrequest -uri $url3 -Usebasicparsing
+		$Document = ParseHtml $w3.content
+		$d3 = $Document.getElementsByTagName('script')[3].text -replace "var componentType = 'filterlist';","" -replace "var componentData = ","" #-replace "`r`n",""
+		$j3 = ConvertFrom-Json $d3 -Depth 100
+		$j3.items.link | %{
+			$url4 = -join ($duourl,$_)
+			$w4 = Invoke-Webrequest -uri $url4
+			$w4.links.href | ? { ($_ -like "*images*") } | %{
+				$url5 = -join ($duourl,$_)
+				$outputfile = -join ($outputdir,$url5.Split('/')[-1]) # last part of url
+				Invoke-Webrequest -uri $url5 -OutFile $outputfile
+				$msg = -join("DONE: ",$url5)
+				Write-Host $msg
+				}
+			}
+		}
+	}
+$ProgressPreference = 'Continue' 
+# that's it
